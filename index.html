@@ -283,7 +283,7 @@
 
         .stats {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
             gap: 15px;
             margin-top: 10px;
         }
@@ -294,6 +294,7 @@
             border-radius: 4px;
             text-align: center;
             border: 1px solid #eee;
+            min-height: 110px;
         }
 
         .stat-value {
@@ -319,6 +320,18 @@
             background: #e3f2fd;
             color: #1565c0;
             border-left: 4px solid #1565c0;
+        }
+
+        .alert.success {
+            background: #e8f5e9;
+            color: #2e7d32;
+            border-left: 4px solid #2e7d32;
+        }
+
+        .alert.warning {
+            background: #fff3e0;
+            color: #e65100;
+            border-left: 4px solid #e65100;
         }
 
         .export-buttons {
@@ -417,9 +430,16 @@
             padding: 20px;
         }
 
+        .two-col {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
         @media (max-width: 768px) {
             .form-row,
-            .filter-toolbar {
+            .filter-toolbar,
+            .two-col {
                 grid-template-columns: 1fr;
             }
             .squad-table {
@@ -447,6 +467,11 @@
         </div>
 
         <div id="squad" class="tab-content active">
+            <div class="card" id="summaryDashboard">
+                <h2>Squad Summary Dashboard</h2>
+                <div id="summaryContent" class="stats"></div>
+            </div>
+
             <div class="card">
                 <h2>Add Player to Squad</h2>
                 <div class="form-row">
@@ -540,6 +565,34 @@
             </div>
 
             <div class="card">
+                <div class="two-col">
+                    <div>
+                        <h2>Player Comparison</h2>
+                        <div class="form-row" style="grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;">
+                            <div class="form-group">
+                                <label>Player A</label>
+                                <select id="comparePlayerA"></select>
+                            </div>
+                            <div class="form-group">
+                                <label>Player B</label>
+                                <select id="comparePlayerB"></select>
+                            </div>
+                        </div>
+                        <div id="compareResults" class="alert info">Select two players to compare.</div>
+                    </div>
+                    <div>
+                        <h2>What-If Scenario</h2>
+                        <div class="form-group">
+                            <label>Select player to simulate exit</label>
+                            <select id="scenarioPlayer"></select>
+                        </div>
+                        <button class="secondary" onclick="simulatePlayerExit()">Simulate Player Exit</button>
+                        <div id="scenarioResult" style="margin-top: 10px;" class="alert info">No scenario simulated yet.</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
                 <h2>Current Squad</h2>
 
                 <div class="filter-toolbar">
@@ -594,8 +647,7 @@
                             <th>Action</th>
                         </tr>
                     </thead>
-                    <tbody id="squadBody">
-                    </tbody>
+                    <tbody id="squadBody"></tbody>
                 </table>
             </div>
 
@@ -606,7 +658,7 @@
                     <button class="secondary" onclick="loadLatestSnapshot()">Load Latest Snapshot</button>
                     <button class="secondary" onclick="exportSquad()">Export Squad (JSON)</button>
                     <button class="secondary" onclick="document.getElementById('importFile').click()">Import Squad (JSON)</button>
-                    <button class="danger" onclick="if(confirm('Clear all players?')) { squad = []; renderSquad(); saveSquadToStorage(); updateAnalysis(); updateTimeline(); updateTransfers(); }">Clear All</button>
+                    <button class="danger" onclick="if(confirm('Clear all players?')) { squad = []; saveSquadToStorage(); renderSquad(); updateAnalysis(); updateTimeline(); updateTransfers(); updateSummaryDashboard(); }">Clear All</button>
                 </div>
                 <input type="file" id="importFile" style="display:none" accept=".json" onchange="importSquad(event)">
             </div>
@@ -722,15 +774,8 @@
             try {
                 const snapshots = JSON.parse(localStorage.getItem(SNAPSHOT_KEY) || '[]');
                 const savedAt = new Date().toISOString();
-                snapshots.push({
-                    savedAt,
-                    squad: JSON.parse(JSON.stringify(squad))
-                });
-
-                if (snapshots.length > 10) {
-                    snapshots.splice(0, snapshots.length - 10);
-                }
-
+                snapshots.push({ savedAt, squad: JSON.parse(JSON.stringify(squad)) });
+                if (snapshots.length > 10) snapshots.splice(0, snapshots.length - 10);
                 localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(snapshots));
                 alert('Squad snapshot saved successfully.');
             } catch (error) {
@@ -746,13 +791,13 @@
                     alert('No saved snapshots found.');
                     return;
                 }
-
                 squad = snapshots[snapshots.length - 1].squad;
+                saveSquadToStorage();
                 renderSquad();
                 updateAnalysis();
                 updateTimeline();
                 updateTransfers();
-                saveSquadToStorage();
+                updateSummaryDashboard();
                 alert('Latest snapshot loaded.');
             } catch (error) {
                 console.warn('Unable to load snapshot:', error);
@@ -793,6 +838,34 @@
             }
         }
 
+        function updatePlayerSelectors() {
+            const compareA = document.getElementById('comparePlayerA');
+            const compareB = document.getElementById('comparePlayerB');
+            const scenario = document.getElementById('scenarioPlayer');
+            const players = squad;
+
+            if (!players.length) {
+                compareA.innerHTML = '<option value="">No players</option>';
+                compareB.innerHTML = '<option value="">No players</option>';
+                scenario.innerHTML = '<option value="">No players</option>';
+                return;
+            }
+
+            const options = players.map(player => `<option value="${player.name}">${player.name}</option>`).join('');
+            compareA.innerHTML = options;
+            compareB.innerHTML = options;
+            scenario.innerHTML = options;
+
+            if (players.length > 1) {
+                compareA.value = players[0].name;
+                compareB.value = players[1].name;
+            }
+
+            compareA.onchange = updateComparison;
+            compareB.onchange = updateComparison;
+            scenario.value = players[0].name;
+        }
+
         function getFilteredSquad() {
             const search = document.getElementById('squadSearch').value.trim().toLowerCase();
             const status = document.getElementById('statusFilter').value;
@@ -821,21 +894,14 @@
 
             filtered.sort((a, b) => {
                 switch (sortBy) {
-                    case 'ovr-desc':
-                        return b.ovr - a.ovr;
-                    case 'ovr-asc':
-                        return a.ovr - b.ovr;
-                    case 'age-youngest':
-                        return a.age - b.age;
-                    case 'age-oldest':
-                        return b.age - a.age;
-                    case 'status':
-                        return a.status.localeCompare(b.status) || a.name.localeCompare(b.name);
-                    case 'position':
-                        return a.position.localeCompare(b.position) || a.name.localeCompare(b.name);
+                    case 'ovr-desc': return b.ovr - a.ovr;
+                    case 'ovr-asc': return a.ovr - b.ovr;
+                    case 'age-youngest': return a.age - b.age;
+                    case 'age-oldest': return b.age - a.age;
+                    case 'status': return a.status.localeCompare(b.status) || a.name.localeCompare(b.name);
+                    case 'position': return a.position.localeCompare(b.position) || a.name.localeCompare(b.name);
                     case 'name':
-                    default:
-                        return a.name.localeCompare(b.name);
+                    default: return a.name.localeCompare(b.name);
                 }
             });
 
@@ -857,8 +923,7 @@
                 return;
             }
 
-            const normalizedName = name.toLowerCase();
-            const duplicate = squad.some(player => player.name.toLowerCase() === normalizedName);
+            const duplicate = squad.some(player => player.name.toLowerCase() === name.toLowerCase());
             if (duplicate) {
                 alert('A player with this name already exists in the squad.');
                 return;
@@ -866,7 +931,7 @@
 
             squad.push({ name, position, secondary, ovr, age, status, role, notes });
             saveSquadToStorage();
-            
+
             document.getElementById('playerName').value = '';
             document.getElementById('playerOVR').value = '';
             document.getElementById('playerAge').value = '';
@@ -875,11 +940,12 @@
             document.getElementById('playerSecondary').value = '';
             document.getElementById('playerRole').value = 'Balanced';
             document.getElementById('playerStatus').value = 'Rotation';
-            
+
             renderSquad();
             updateAnalysis();
             updateTimeline();
             updateTransfers();
+            updateSummaryDashboard();
         }
 
         function removePlayer(index) {
@@ -889,12 +955,109 @@
             updateAnalysis();
             updateTimeline();
             updateTransfers();
+            updateSummaryDashboard();
+        }
+
+        function updateSummaryDashboard() {
+            const summary = document.getElementById('summaryContent');
+            if (!squad.length) {
+                summary.innerHTML = '<div class="empty-state">Add players to see squad summary.</div>';
+                return;
+            }
+
+            const avgOVR = Math.round(squad.reduce((sum, p) => sum + p.ovr, 0) / squad.length);
+            const avgAge = Math.round(squad.reduce((sum, p) => sum + p.age, 0) / squad.length);
+            const youthCount = squad.filter(p => p.status === 'Youth').length;
+            const starterCount = squad.filter(p => p.status === 'Starter').length;
+            const riskPositions = getPositions().filter(position => {
+                const analysis = analyzePosition(position);
+                return analysis.verdict.includes('🔴') || analysis.verdict.includes('🟠');
+            }).length;
+
+            summary.innerHTML = `
+                <div class="stat-box"><div class="stat-value">${squad.length}</div><div class="stat-label">Players</div></div>
+                <div class="stat-box"><div class="stat-value">${avgOVR}</div><div class="stat-label">Avg OVR</div></div>
+                <div class="stat-box"><div class="stat-value">${avgAge}</div><div class="stat-label">Avg Age</div></div>
+                <div class="stat-box"><div class="stat-value">${starterCount}</div><div class="stat-label">Starters</div></div>
+                <div class="stat-box"><div class="stat-value">${youthCount}</div><div class="stat-label">Youth</div></div>
+                <div class="stat-box"><div class="stat-value">${riskPositions}</div><div class="stat-label">Risky Positions</div></div>
+            `;
+        }
+
+        function updateComparison() {
+            const compareA = document.getElementById('comparePlayerA');
+            const compareB = document.getElementById('comparePlayerB');
+            const aName = compareA.value;
+            const bName = compareB.value;
+            const resultBox = document.getElementById('compareResults');
+
+            if (!aName || !bName || aName === bName) {
+                resultBox.className = 'alert info';
+                resultBox.textContent = 'Select two different players to compare.';
+                return;
+            }
+
+            const a = squad.find(p => p.name === aName);
+            const b = squad.find(p => p.name === bName);
+            if (!a || !b) {
+                resultBox.className = 'alert info';
+                resultBox.textContent = 'One or both players are unavailable.';
+                return;
+            }
+
+            const aScore = a.ovr + (a.age < 24 ? 5 : 0) + (a.status === 'Starter' ? 6 : 0) + (a.role === 'Creative' || a.role === 'Attacking' ? 3 : 0);
+            const bScore = b.ovr + (b.age < 24 ? 5 : 0) + (b.status === 'Starter' ? 6 : 0) + (b.role === 'Creative' || b.role === 'Attacking' ? 3 : 0);
+            const winner = aScore === bScore ? 'Draw' : aScore > bScore ? a.name : b.name;
+
+            resultBox.className = 'alert success';
+            resultBox.innerHTML = `
+                <strong>Comparison:</strong><br>
+                ${a.name}: ${a.ovr} OVR, Age ${a.age}, ${a.position}, ${a.status}<br>
+                ${b.name}: ${b.ovr} OVR, Age ${b.age}, ${b.position}, ${b.status}<br>
+                <strong>Recommended fit:</strong> ${winner === 'Draw' ? 'No clear winner — both are highly viable.' : `${winner} has the stronger current squad value.`}
+            `;
+        }
+
+        function simulatePlayerExit() {
+            const scenario = document.getElementById('scenarioPlayer');
+            const selected = scenario.value;
+            const resultBox = document.getElementById('scenarioResult');
+            if (!selected) {
+                resultBox.className = 'alert info';
+                resultBox.textContent = 'Select a player first.';
+                return;
+            }
+
+            const index = squad.findIndex(p => p.name === selected);
+            if (index === -1) {
+                resultBox.className = 'alert warning';
+                resultBox.textContent = 'Selected player not found in squad.';
+                return;
+            }
+
+            const player = squad[index];
+            const removed = squad.splice(index, 1);
+            saveSquadToStorage();
+            renderSquad();
+            updateAnalysis();
+            updateTimeline();
+            updateTransfers();
+            updateSummaryDashboard();
+
+            const riskSummary = getPositions().filter(pos => {
+                const analysis = analyzePosition(pos);
+                return analysis.verdict.includes('🔴') || analysis.verdict.includes('🟠');
+            }).length;
+
+            resultBox.className = 'alert warning';
+            resultBox.innerHTML = `<strong>Scenario:</strong> ${removed[0].name} exits the squad.<br><strong>Impact:</strong> ${riskSummary} risky positions remain after the change.`;
         }
 
         function renderSquad() {
             const tbody = document.getElementById('squadBody');
             const filteredPlayers = getFilteredSquad();
             updatePositionFilterOptions();
+            updatePlayerSelectors();
             tbody.innerHTML = '';
 
             if (filteredPlayers.length === 0) {
@@ -938,7 +1101,6 @@
         function analyzePosition(position) {
             const players = getPlayersAtPosition(position);
             const naturalPlayers = squad.filter(p => p.position === position).sort((a, b) => b.ovr - a.ovr);
-            
             const starter = naturalPlayers.find(p => p.status === 'Starter') || naturalPlayers[0] || null;
             const backups = naturalPlayers.filter(p => p !== starter);
             const emergencyCover = players.filter(p => !naturalPlayers.includes(p) && p.position !== position);
@@ -957,15 +1119,7 @@
                 verdictClass = 'adequate';
             }
 
-            return {
-                position,
-                starter,
-                backups,
-                emergencyCover,
-                verdict,
-                verdictClass,
-                totalPlayers: players.length
-            };
+            return { position, starter, backups, emergencyCover, verdict, verdictClass, totalPlayers: players.length };
         }
 
         function updateAnalysis() {
@@ -984,22 +1138,18 @@
                     <div class="position-analysis">
                         <div class="position-title">${pos} ${analysis.verdict}</div>
                         <div class="verdict ${analysis.verdictClass}">${analysis.verdict}</div>
-                        
                         <div class="tier starter">
                             <div class="tier-label">🟢 Starter</div>
                             <div class="player-info">${analysis.starter ? `${analysis.starter.name} (${analysis.starter.ovr}) — Age ${analysis.starter.age}` : '<span class="empty">None</span>'}</div>
                         </div>
-
                         <div class="tier rotation">
                             <div class="tier-label">🟠 Natural Rotation</div>
                             <div class="player-info">${analysis.backups.length > 0 ? analysis.backups.map(p => `${p.name} (${p.ovr}) — Age ${p.age}`).join(', ') : '<span class="empty">None</span>'}</div>
                         </div>
-
                         <div class="tier emergency">
                             <div class="tier-label">🔵 Emergency Cover</div>
                             <div class="player-info">${analysis.emergencyCover.length > 0 ? analysis.emergencyCover.map(p => `${p.name} (${p.position})`).join(', ') : '<span class="empty">None</span>'}</div>
                         </div>
-
                         <div style="margin-top:10px;padding:8px;background:white;border-radius:3px;border-left:3px solid #667eea;">
                             <strong style="font-size:12px;color:#667eea;">DEPTH:</strong> ${analysis.backups.length} natural + ${analysis.emergencyCover.length} emergency = ${analysis.totalPlayers} total in/around this position
                         </div>
@@ -1045,9 +1195,7 @@
                 }
             });
 
-            if (!nowHtml) {
-                nowHtml = '<p style="color:#999;">✓ No immediate critical gaps</p>';
-            }
+            if (!nowHtml) nowHtml = '<p style="color:#999;">✓ No immediate critical gaps</p>';
 
             const aging = squad.filter(p => p.age >= 28 && p.status === 'Starter');
             aging.forEach(player => {
@@ -1076,12 +1224,8 @@
                 }
             });
 
-            if (!nextHtml) {
-                nextHtml = '<p style="color:#999;">✓ No immediate succession risks</p>';
-            }
-            if (!futureHtml) {
-                futureHtml = '<p style="color:#999;">✓ No blocked development pathways</p>';
-            }
+            if (!nextHtml) nextHtml = '<p style="color:#999;">✓ No immediate succession risks</p>';
+            if (!futureHtml) futureHtml = '<p style="color:#999;">✓ No blocked development pathways</p>';
 
             nowDiv.innerHTML = nowHtml;
             nextDiv.innerHTML = nextHtml;
@@ -1102,22 +1246,10 @@
             getPositions().forEach(pos => {
                 const analysis = analyzePosition(pos);
                 if (analysis.verdict.includes('🔴')) {
-                    priorities.push({
-                        level: 1,
-                        position: pos,
-                        need: 'Starter required',
-                        desc: `No starting player available at ${pos}. Sign a capable starter immediately.`,
-                        class: 'p1'
-                    });
+                    priorities.push({ level: 1, position: pos, need: 'Starter required', desc: `No starting player available at ${pos}. Sign a capable starter immediately.`, class: 'p1' });
                     signingsNeeded++;
                 } else if (analysis.verdict.includes('🟠') && analysis.backups.length === 0 && analysis.emergencyCover.length === 0) {
-                    priorities.push({
-                        level: 2,
-                        position: pos,
-                        need: 'Rotation/depth optional',
-                        desc: `${pos}: ${analysis.starter.name} (${analysis.starter.ovr}) starts alone. Only sign rotation if fixture congestion or injury risk.`,
-                        class: 'p2'
-                    });
+                    priorities.push({ level: 2, position: pos, need: 'Rotation/depth optional', desc: `${pos}: ${analysis.starter.name} (${analysis.starter.ovr}) starts alone. Only sign rotation if fixture congestion or injury risk.`, class: 'p2' });
                 }
             });
 
@@ -1126,13 +1258,7 @@
                 const posPlayers = squad.filter(p => p.position === player.position);
                 const hasHeir = posPlayers.some(p => p.age < 26 && p !== player);
                 if (!hasHeir) {
-                    priorities.push({
-                        level: 2,
-                        position: player.position,
-                        need: 'Long-term successor needed',
-                        desc: `${player.name} (${player.age}yo) is ${player.position} starter. Plan a successor for next season to avoid panic buying.`,
-                        class: 'p2'
-                    });
+                    priorities.push({ level: 2, position: player.position, need: 'Long-term successor needed', desc: `${player.name} (${player.age}yo) is ${player.position} starter. Plan a successor for next season to avoid panic buying.`, class: 'p2' });
                 }
             });
 
@@ -1177,24 +1303,20 @@
 
         function importSquad(event) {
             const file = event.target.files[0];
-            if (!file) {
-                return;
-            }
+            if (!file) return;
 
             const reader = new FileReader();
             reader.onload = (e) => {
                 try {
                     const imported = JSON.parse(e.target.result);
-                    if (!Array.isArray(imported)) {
-                        throw new Error('Imported file does not contain a valid squad array.');
-                    }
-
+                    if (!Array.isArray(imported)) throw new Error('Imported file does not contain a valid squad array.');
                     squad = imported;
                     saveSquadToStorage();
                     renderSquad();
                     updateAnalysis();
                     updateTimeline();
                     updateTransfers();
+                    updateSummaryDashboard();
                     alert('Squad imported successfully!');
                 } catch (err) {
                     alert('Error importing squad: ' + err.message);
@@ -1208,6 +1330,8 @@
         updateAnalysis();
         updateTimeline();
         updateTransfers();
+        updateSummaryDashboard();
+        updateComparison();
     </script>
 </body>
 </html>
