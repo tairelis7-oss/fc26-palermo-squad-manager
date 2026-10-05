@@ -436,6 +436,15 @@
             gap: 20px;
         }
 
+        .target-card {
+            background: #f7f8ff;
+            border: 1px solid #dde3ff;
+            border-left: 4px solid #667eea;
+            border-radius: 6px;
+            padding: 14px;
+            margin-top: 12px;
+        }
+
         @media (max-width: 768px) {
             .form-row,
             .filter-toolbar,
@@ -470,6 +479,54 @@
             <div class="card" id="summaryDashboard">
                 <h2>Squad Summary Dashboard</h2>
                 <div id="summaryContent" class="stats"></div>
+            </div>
+
+            <div class="card">
+                <h2>Transfer Target Builder</h2>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Target Position</label>
+                        <select id="targetPosition">
+                            <option value="all">All urgent positions</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Minimum OVR</label>
+                        <input type="number" id="targetMinOVR" min="60" max="95" value="75">
+                    </div>
+                    <div class="form-group">
+                        <label>Age Cap</label>
+                        <input type="number" id="targetAgeCap" min="18" max="35" value="28">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Preferred Role</label>
+                        <select id="targetRole">
+                            <option value="all">Any role</option>
+                            <option value="Balanced">Balanced</option>
+                            <option value="Attacking">Attacking</option>
+                            <option value="Defensive">Defensive</option>
+                            <option value="Creative">Creative</option>
+                            <option value="Physical">Physical</option>
+                            <option value="Playmaker">Playmaker</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Target Market</label>
+                        <select id="targetMarket">
+                            <option value="Italian/Serie A/Serie B">Italian / Serie A / Serie B</option>
+                            <option value="Italian">Italian only</option>
+                            <option value="Serie A">Serie A only</option>
+                            <option value="Serie B">Serie B only</option>
+                            <option value="Any">Any market</option>
+                        </select>
+                    </div>
+                    <div class="form-group" style="display:flex; align-items:end;">
+                        <button class="secondary" type="button" onclick="updateTransferTargetBuilder()">Generate Targets</button>
+                    </div>
+                </div>
+                <div id="targetRecommendations"></div>
             </div>
 
             <div class="card">
@@ -658,7 +715,7 @@
                     <button class="secondary" onclick="loadLatestSnapshot()">Load Latest Snapshot</button>
                     <button class="secondary" onclick="exportSquad()">Export Squad (JSON)</button>
                     <button class="secondary" onclick="document.getElementById('importFile').click()">Import Squad (JSON)</button>
-                    <button class="danger" onclick="if(confirm('Clear all players?')) { squad = []; saveSquadToStorage(); renderSquad(); updateAnalysis(); updateTimeline(); updateTransfers(); updateSummaryDashboard(); }">Clear All</button>
+                    <button class="danger" onclick="if(confirm('Clear all players?')) { squad = []; saveSquadToStorage(); renderSquad(); updateAnalysis(); updateTimeline(); updateTransfers(); updateSummaryDashboard(); updateTransferTargetBuilder(); }">Clear All</button>
                 </div>
                 <input type="file" id="importFile" style="display:none" accept=".json" onchange="importSquad(event)">
             </div>
@@ -798,6 +855,7 @@
                 updateTimeline();
                 updateTransfers();
                 updateSummaryDashboard();
+                updateTransferTargetBuilder();
                 alert('Latest snapshot loaded.');
             } catch (error) {
                 console.warn('Unable to load snapshot:', error);
@@ -835,6 +893,27 @@
                 select.value = currentValue;
             } else {
                 select.value = 'all';
+            }
+        }
+
+        function updatePositionTargetOptions() {
+            const select = document.getElementById('targetPosition');
+            const positions = getPositions();
+            const currentValue = select.value || 'all';
+            const urgentPositions = positions.filter(pos => {
+                const analysis = analyzePosition(pos);
+                return analysis.verdict.includes('🔴') || analysis.verdict.includes('🟠');
+            });
+
+            select.innerHTML = '<option value="all">All urgent positions</option>' + urgentPositions.map(pos => `<option value="${pos}">${pos}</option>`).join('');
+            if (urgentPositions.includes(currentValue)) {
+                select.value = currentValue;
+            } else {
+                select.value = 'all';
+            }
+
+            if (!urgentPositions.length) {
+                select.innerHTML = '<option value="all">No urgent needs</option>';
             }
         }
 
@@ -908,6 +987,59 @@
             return filtered;
         }
 
+        function updateTransferTargetBuilder() {
+            const positionSelect = document.getElementById('targetPosition');
+            const minOVR = parseInt(document.getElementById('targetMinOVR').value || '75', 10);
+            const ageCap = parseInt(document.getElementById('targetAgeCap').value || '28', 10);
+            const roleFilter = document.getElementById('targetRole').value;
+            const marketFilter = document.getElementById('targetMarket').value;
+            const recommendationsBox = document.getElementById('targetRecommendations');
+
+            let targetPositions = [];
+            const urgentPositions = getPositions().filter(pos => {
+                const analysis = analyzePosition(pos);
+                return analysis.verdict.includes('🔴') || analysis.verdict.includes('🟠');
+            });
+
+            if (positionSelect && positionSelect.value && positionSelect.value !== 'all') {
+                targetPositions = [positionSelect.value];
+            } else if (urgentPositions.length) {
+                targetPositions = urgentPositions;
+            } else {
+                targetPositions = getPositions();
+            }
+
+            if (!targetPositions.length) {
+                recommendationsBox.innerHTML = '<div class="alert info">No urgent transfer needs currently flagged. Focus on development or waiting for the right market opportunity.</div>';
+                return;
+            }
+
+            const cards = targetPositions.map(position => {
+                const analysis = analyzePosition(position);
+                const reason = analysis.verdict.includes('🔴')
+                    ? 'No starter currently available. Need an immediate starting-level option.'
+                    : 'Starter exists but no natural rotation or depth. A better backup is needed for risk coverage.';
+
+                const role = roleFilter === 'all' ? (position === 'CB' || position === 'LB' || position === 'RB' || position === 'GK' ? 'Defensive' : (position === 'CM' || position === 'CDM' || position === 'CAM' ? 'Balanced' : 'Attacking')) : roleFilter;
+                const minAge = 18;
+
+                return `
+                    <div class="target-card">
+                        <strong>${position}</strong>
+                        <div style="margin-top: 6px; color:#444;">${reason}</div>
+                        <div style="margin-top: 10px; font-size:14px; color:#555;">
+                            Ideal profile: ${minOVR}+ OVR, age ${minAge}-${ageCap}, role ${role}, market preference: ${marketFilter}
+                        </div>
+                        <div style="margin-top: 8px; font-size:13px; color:#666;">
+                            Palermo rule: prioritize value, role fit, and realistic depth before chasing pure rating points.
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            recommendationsBox.innerHTML = cards;
+        }
+
         function addPlayer() {
             const name = document.getElementById('playerName').value.trim();
             const position = document.getElementById('playerPosition').value;
@@ -946,6 +1078,7 @@
             updateTimeline();
             updateTransfers();
             updateSummaryDashboard();
+            updateTransferTargetBuilder();
         }
 
         function removePlayer(index) {
@@ -956,6 +1089,7 @@
             updateTimeline();
             updateTransfers();
             updateSummaryDashboard();
+            updateTransferTargetBuilder();
         }
 
         function updateSummaryDashboard() {
@@ -1043,6 +1177,7 @@
             updateTimeline();
             updateTransfers();
             updateSummaryDashboard();
+            updateTransferTargetBuilder();
 
             const riskSummary = getPositions().filter(pos => {
                 const analysis = analyzePosition(pos);
@@ -1057,6 +1192,7 @@
             const tbody = document.getElementById('squadBody');
             const filteredPlayers = getFilteredSquad();
             updatePositionFilterOptions();
+            updatePositionTargetOptions();
             updatePlayerSelectors();
             tbody.innerHTML = '';
 
@@ -1317,6 +1453,7 @@
                     updateTimeline();
                     updateTransfers();
                     updateSummaryDashboard();
+                    updateTransferTargetBuilder();
                     alert('Squad imported successfully!');
                 } catch (err) {
                     alert('Error importing squad: ' + err.message);
@@ -1331,6 +1468,7 @@
         updateTimeline();
         updateTransfers();
         updateSummaryDashboard();
+        updateTransferTargetBuilder();
         updateComparison();
     </script>
 </body>
